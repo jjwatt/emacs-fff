@@ -1,5 +1,7 @@
 # fff.el — Emacs frontend for fff via `emacs-ffi` + `libfff_c.so`
 
+WIP: Communication with the lib is working, but the interface is crap right now.
+
 An Emacs extension that calls directly into `libfff_c.so` — the **C FFI shared
 library** built by the [fff.nvim](https://github.com/dmtrKovalenko/fff.nvim)
 workspace — using [tromey/emacs-ffi](https://github.com/tromey/emacs-ffi).
