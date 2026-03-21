@@ -38,55 +38,6 @@ C-c f g  →  live grep
               └────────────────────┘
 ```
 
-### Why this approach vs. the previous version
-
-The first draft of this extension assumed fff used a *socket-based JSON-RPC*
-protocol (like many LSP-style tools).  Looking at the actual build output,
-the project ships **three** consumer-facing interfaces:
-
-| Artefact | Interface | Consumers |
-|---|---|---|
-| `libfff_nvim.so` | `mlua` Lua module | Neovim Lua runtime |
-| `libfff_c.so` | **stable C ABI**, JSON over FFI | Bun, Node.js, Python — and now Emacs |
-| `fff-mcp` binary | stdio MCP protocol | AI agents |
-
-`libfff_c.so` is explicitly labelled "C FFI library" in the release assets.
-The C API is **synchronous**, **opaque-handle** based, and returns
-heap-allocated JSON strings that the caller must free.  This is exactly what
-`emacs-ffi` (`define-ffi-function`) is designed for.
-
-### C API surface (as bound in `fff.el`)
-
-```c
-// Memory
-void  fff_free_string(char *ptr);
-
-// Databases (frecency + combo-boost history)
-bool  fff_init_db(const char *db_path);
-bool  fff_init_history_db(const char *db_path);
-void  fff_destroy_db(void);
-
-// FilePicker lifecycle
-void* fff_picker_create(const char *base_path, int max_threads);
-void  fff_picker_destroy(void *picker);
-bool  fff_picker_wait_for_scan(void *picker, uint64_t timeout_ms);
-bool  fff_picker_is_scan_active(void *picker);
-void  fff_picker_rescan(void *picker);
-void  fff_picker_refresh_git_status(void *picker);
-
-// Search — return heap-allocated JSON; caller calls fff_free_string()
-char* fff_fuzzy_search_files(void *picker, const char *query,
-                              int max_results, int max_threads,
-                              const char *current_file /*nullable*/);
-char* fff_live_grep(void *picker, const char *query,
-                    const char *mode /*"plain"|"regex"|"fuzzy"*/,
-                    int max_results);
-
-// Frecency recording
-void  fff_record_file_open(const char *path);
-void  fff_record_query_match(const char *query, const char *path);
-```
-
 > **Verify symbol names on your build:**
 > ```bash
 > nm -D target/release/libfff_c.so | grep ' T '
@@ -198,35 +149,6 @@ Setting `fff-frecency-db-path` and `fff-history-db-path` to the same
 paths used by the Neovim plugin means frecency and combo-boost scores
 are shared between both editors.
 
----
-
-## JSON result shapes
-
-**`fff_fuzzy_search_files`:**
-```json
-[
-  {
-    "path": "src/main.rs",
-    "git_status": "modified",
-    "is_current_file": false,
-    "score": 1234.5
-  }
-]
-```
-
-**`fff_live_grep`:**
-```json
-[
-  {
-    "path": "src/main.rs",
-    "line": 42,
-    "col": 5,
-    "text": "    let result = search(query);"
-  }
-]
-```
-
----
 
 ## Troubleshooting
 
