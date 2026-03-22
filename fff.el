@@ -616,40 +616,87 @@ Returns t if scan completed, nil if timed out."
   (when (minibufferp) (abort-recursive-edit)))
 
 ;;; ──────────────────────────────────────────────────────────────────
-;;; Public entry points
+;;; Backend protocol
+;;
+;; A backend is a plist with these keys, all functions:
+;;
+;;  :pick-file  (lambda (get-candidates open-fn) ...)
+;;    Called by fff-find-file. get-candidates is a function that
+;;    takes a query string and returns a list of (display . plist)
+;;    cons cells. open-fn is called with the chosen plist.
+;;
+;;  :pick-grep  (lambda (get-candidates open-fn) ...)
+;;    Same but for grep results.
+;;
+;; get-candidates signature: (lambda (query) ...) → list of (label . plist)
+;; open-fn      signature:   (lambda (result-plist) ...)
 
+(defvar fff-backend nil
+  "Active fff UI backend plist.
+Set this to `fff-backend-helm', `fff-backend-consult',
+`fff-backend-ivy', or `fff-backend-default' before calling
+any fff entry point.  If nil, `fff-backend-default' is used.")
+
+(defun fff--backend ()
+  (or fff-backend fff-backend-default))
+
+(defun fff--backend-pick-file (get-candidates open-fn)
+  (funcall (plist-get (fff--backend) :pick-file) get-candidates open-fn))
+
+(defun fff--backend-pick-grep (get-candidates open-fn)
+  (funcall (plist-get (fff--backend) :pick-grep) get-candidates open-fn))
+
+(defun fff--file-candidates (query)
+  "Return (label . plist) pairs for file search QUERY."
+  (fff--call-search-files query)   ; updates fff--picker-results
+  (mapcar (lambda (r)
+            (cons (or (plist-get r :path) "")
+                  r))
+          fff--picker-results))
+
+(defun fff--grep-candidates (query)
+  "Return (label . plist) pairs for grep QUERY."
+  (fff--call-live-grep query)
+  (mapcar (lambda (r)
+            (cons (format "%s:%d:%d"
+                          (plist-get r :path)
+                          (or (plist-get r :line) 0)
+                          (or (plist-get r :col)  0))
+                  r))
+          fff--picker-results))
+
+(defun fff--open-plist (plist)
+  "Open the file described by result PLIST."
+  (let ((path (plist-get plist :path))
+        (line (plist-get plist :line)))
+    (when (and fff--instance
+               fff--picker-query
+               (not (string-empty-p fff--picker-query)))
+      (fff--with-cstring qp fff--picker-query
+        (fff--with-cstring pp path
+          (fff--ffi-free-result
+           (fff--ffi-track-query fff--instance qp pp)))))
+    (find-file path)
+    (when line
+      (goto-char (point-min))
+      (forward-line (1- line)))))
+
+;;; ──────────────────────────────────────────────────────────────────
+;;; Public entry points
 ;;;###autoload
 (defun fff-find-file ()
-  "Fuzzy file picker for the current project."
   (interactive)
   (let ((base (fff--project-root)))
     (fff--ensure-instance base)
     (fff--wait-for-scan-poll 10000)
-    (setq fff--picker-mode           'files
-          fff--picker-results        '()
-          fff--picker-selected-index 0
-          fff--picker-query          "")
-    (fff--setup-windows)
-    (fff--call-search-files "")
-    (condition-case _
-        (fff--read-query "fff › ")
-      (quit (fff-picker-quit)))))
+    (fff--backend-pick-file #'fff--file-candidates #'fff--open-plist)))
 
 ;;;###autoload
 (defun fff-grep ()
-  "Live grep picker for the current project."
   (interactive)
   (let ((base (fff--project-root)))
     (fff--ensure-instance base)
-    (setq fff--picker-mode           'grep
-          fff--picker-grep-mode      0
-          fff--picker-results        '()
-          fff--picker-selected-index 0
-          fff--picker-query          "")
-    (fff--setup-windows)
-    (condition-case _
-        (fff--read-query "fff grep [plain] › ")
-      (quit (fff-picker-quit)))))
+    (fff--backend-pick-grep #'fff--grep-candidates #'fff--open-plist)))
 
 ;;;###autoload
 (defun fff-grep-word-at-point ()
@@ -699,4 +746,39 @@ Returns t if scan completed, nil if timed out."
     (message "fff: now watching %s" dir)))
 
 (provide 'fff)
+
+(defun fff--file-candidates (query)
+  "Return (label . plist) pairs for file search QUERY."
+  (fff--call-search-files query)   ; updates fff--picker-results
+  (mapcar (lambda (r)
+            (cons (or (plist-get r :path) "")
+                  r))
+          fff--picker-results))
+
+(defun fff--grep-candidates (query)
+  "Return (label . plist) pairs for grep QUERY."
+  (fff--call-live-grep query)
+  (mapcar (lambda (r)
+            (cons (format "%s:%d:%d"
+                          (plist-get r :path)
+                          (or (plist-get r :line) 0)
+                          (or (plist-get r :col)  0))
+                  r))
+          fff--picker-results))
+
+(defun fff--open-plist (plist)
+  "Open the file described by result PLIST."
+  (let ((path (plist-get plist :path))
+        (line (plist-get plist :line)))
+    (when (and fff--instance
+               fff--picker-query
+               (not (string-empty-p fff--picker-query)))
+      (fff--with-cstring qp fff--picker-query
+        (fff--with-cstring pp path
+          (fff--ffi-free-result
+           (fff--ffi-track-query fff--instance qp pp)))))
+    (find-file path)
+    (when line
+      (goto-char (point-min))
+      (forward-line (1- line)))))
 ;;; fff.el ends here
