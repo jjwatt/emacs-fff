@@ -267,6 +267,10 @@ The `.so` needs an absolute path passed to `module-load` before `(require 'ffi)`
 
 Confirm `LD_LIBRARY_PATH` includes the directory with `libfff_c.so` and restart Emacs — environment variables must be set before Emacs starts, not inside `init.el`.
 
+**`peculiar error`**
+
+Confirm `LD_LIBRARY_PATH` includes the directory with `libfff_c.so` and restart Emacs — environment variables must be set before Emacs starts, not inside `init.el`.
+
 **`fff-find-file` errors: "not in a project"**
 
 Run `M-x fff-change-directory` to set a fallback root, or add to your config:
