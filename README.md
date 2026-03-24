@@ -85,6 +85,15 @@ cd emacs-ffi
 make
 ```
 
+You may need to change `emacs-ffi/ffi.el` to load the ffi so module like this:
+
+```elisp
+;; (module-load "ffi-module.so")
+(load "ffi-module")
+```
+
+At least, I had to change it like that. I put both `emacs-ffi` and `emacs-fff` in `~/.emacs.local` and add them both the load path.
+
 ### 4. Install `fff.el`
 
 Copy `fff.el` and `fff-helm.el` (or whichever backend you want) to a directory on your `load-path`.
