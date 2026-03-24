@@ -1,10 +1,6 @@
-# fff.el — Emacs frontend for fff via `emacs-ffi` + `libfff_c.so`
+# fff.el
 
-WIP: Communication with the lib is working, but the interface is crap right now.
-
-An Emacs extension that calls directly into `libfff_c.so` — the **C FFI shared
-library** built by the [fff.nvim](https://github.com/dmtrKovalenko/fff.nvim)
-workspace — using [tromey/emacs-ffi](https://github.com/tromey/emacs-ffi).
+An Emacs frontend for [fff.nvim](https://github.com/dmtrKovalenko/fff.nvim) — a fast, typo-resistant fuzzy file finder with frecency scoring, git status integration, and live grep. This package calls directly into `libfff_c.so`, the C FFI shared library from the fff.nvim project, using [tromey/emacs-ffi](https://github.com/tromey/emacs-ffi).
 
 ```
 C-c f f  →  fuzzy file picker
@@ -16,55 +12,72 @@ C-c f g  →  live grep
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│  Emacs process                                                   │
-│                                                                  │
-│  fff.el  ──  define-ffi-function  (emacs-ffi / libffi)          │
-│                       │                                          │
-└───────────────────────│──────────────────────────────────────────┘
-                        │  dlopen + C ABI calls
-                        ▼
-              ┌────────────────────┐
-              │  libfff_c.so       │   ← crates/fff-c/  (cdylib)
-              │  synchronous C API │
-              └─────────┬──────────┘
-                        │
-                        ▼
-              ┌────────────────────┐
-              │  fff-core  (Rust)  │
-              │  • file index      │
-              │  • fuzzy search    │
-              │  • frecency LMDB   │
-              │  • git status      │
-              │  • live grep       │
-              └────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  Emacs                                                      │
+│                                                             │
+│  fff.el          — FFI bindings, search, backend protocol   │
+│  fff-helm.el     — Helm UI backend                          │
+│                                                             │
+│  emacs-ffi       — libffi bridge (tromey/emacs-ffi)         │
+└──────────────────────────┬──────────────────────────────────┘
+                           │  dlopen + C ABI
+                           ▼
+                ┌─────────────────────┐
+                │   libfff_c.so       │
+                │   (Rust, cdylib)    │
+                ├─────────────────────┤
+                │  • file index       │
+                │  • fuzzy search     │
+                │  • live grep        │
+                │  • frecency LMDB    │
+                │  • git status       │
+                └─────────────────────┘
 ```
 
-> **Verify symbol names on your build:**
-> ```bash
-> nm -D target/release/libfff_c.so | grep ' T '
-> ```
-> Or run `M-x fff-dump-symbols` after loading the package.
+### Why direct FFI instead of a socket/process?
+
+fff.nvim ships three consumer interfaces: a Neovim Lua module (`libfff_nvim.so`), an MCP server binary (`fff-mcp`), and a **C FFI shared library** (`libfff_c.so`) intended for any language with C FFI support — Bun, Node.js, Python, and now Emacs. The C library has a synchronous API with no async runtime, making it a natural fit for `emacs-ffi`'s `define-ffi-function`.
+
+### Key API facts
+
+- Every `fff_*` function returns `*mut FffResult` — a `repr(C)` envelope with `success`, `error`, `handle`, and `int_value` fields. The `fff--with-result` macro handles checking and freeing this automatically.
+- Results are **not JSON** — they are `repr(C)` structs accessed via getter functions (`fff_search_result_get_item`, `fff_grep_result_get_match`). We read field values with `ffi--mem-ref` at computed byte offsets.
+- The `FffInstance` is an opaque `void*` created by `fff_create_instance` and destroyed by `fff_destroy`. All other functions take this handle as their first argument.
+- Memory is caller-managed: `fff_free_result` frees the envelope, `fff_free_search_result` / `fff_free_grep_result` free the payload, separately.
 
 ---
 
 ## Installation
 
-### 1. Build (or download) `libfff_c.so`
+### 1. Build `libfff_c.so`
 
 ```bash
-# Build from source
-cd path/to/fff.nvim
+git clone https://github.com/dmtrKovalenko/fff.nvim
+cd fff.nvim
 cargo build --release -p fff-c
 # → target/release/libfff_c.so  (Linux)
 # → target/release/libfff_c.dylib (macOS)
-cp target/release/libfff_c.so ~/.local/lib/
 ```
 
-Or grab the prebuilt `c-lib-{target}.so` from the
-[GitHub Releases](https://github.com/dmtrKovalenko/fff.nvim/releases) page.
+Or download the prebuilt `c-lib-{target}.so` from the [GitHub Releases](https://github.com/dmtrKovalenko/fff.nvim/releases) page.
 
-### 2. Install `emacs-ffi`
+### 2. Make `libfff_c.so` findable
+
+`libltdl` (used by emacs-ffi) searches `LD_LIBRARY_PATH` on Linux and `DYLD_LIBRARY_PATH` on macOS. The simplest approach:
+
+```bash
+# In your shell rc or Emacs launcher script:
+export LD_LIBRARY_PATH="$HOME/git/fff.nvim/target/release:$LD_LIBRARY_PATH"
+```
+
+Or install system-wide:
+
+```bash
+sudo cp target/release/libfff_c.so /usr/local/lib/
+sudo ldconfig
+```
+
+### 3. Install `emacs-ffi`
 
 ```bash
 git clone https://github.com/tromey/emacs-ffi
@@ -72,37 +85,27 @@ cd emacs-ffi
 make
 ```
 
-Add the directory to your `load-path`.
+### 4. Install `fff.el`
 
-### 3. Configure
+Copy `fff.el` and `fff-helm.el` (or whichever backend you want) to a directory on your `load-path`.
 
-```emacs-lisp
+### 5. Configure
+
+```elisp
+;; Load the native ffi module first — must be an absolute path
+(module-load "/path/to/emacs-ffi/ffi-module.so")
 (add-to-list 'load-path "/path/to/emacs-ffi")
-(add-to-list 'load-path "/path/to/fff.el")
 
-(setq fff-library-path (expand-file-name "~/.local/lib/libfff_c.so"))
+;; Add fff to load-path
+(add-to-list 'load-path "/path/to/emacs-fff")
 
-(require 'fff)
+;; Load your chosen backend (sets fff-backend automatically)
+(require 'fff-helm)    ; or fff-consult, fff-ivy, or just fff for default
+
+;; Bind keys
 (global-set-key (kbd "C-c f f") #'fff-find-file)
 (global-set-key (kbd "C-c f g") #'fff-grep)
 (global-set-key (kbd "C-c f w") #'fff-grep-word-at-point)
-```
-
-Or with `use-package` + `straight.el`:
-
-```emacs-lisp
-(use-package ffi
-  :straight (:host github :repo "tromey/emacs-ffi"))
-
-(use-package fff
-  :straight (:host github :repo "your/fff.el")
-  :custom
-  (fff-library-path (expand-file-name "~/.local/lib/libfff_c.so"))
-  (fff-max-results 100)
-  (fff-preview-enabled t)
-  :bind (("C-c f f" . fff-find-file)
-         ("C-c f g" . fff-grep)
-         ("C-c f w" . fff-grep-word-at-point)))
 ```
 
 ---
@@ -112,58 +115,178 @@ Or with `use-package` + `straight.el`:
 | Command | Description |
 |---|---|
 | `M-x fff-find-file` | Fuzzy file picker for the current project |
-| `M-x fff-grep` | Live grep (cycle modes with `<backtab>`) |
+| `M-x fff-grep` | Live grep (plain text by default) |
 | `M-x fff-grep-word-at-point` | Grep for the word under the cursor |
-| `M-x fff-refresh` | Rescan the project directory |
-| `M-x fff-refresh-git` | Refresh git status |
-| `M-x fff-stop` | Destroy the picker + close databases |
-| `M-x fff-change-directory` | Switch to a different root |
-| `M-x fff-dump-symbols` | Show exported C symbols from the .so |
-| `M-x fff-check-symbols` | Verify all expected symbols are present |
+| `M-x fff-change-directory` | Set a fallback root when outside a git repo |
+| `M-x fff-refresh` | Trigger a rescan of the project tree |
+| `M-x fff-refresh-git` | Refresh git status cache |
+| `M-x fff-stop` | Destroy the fff instance and free memory |
 
-### Picker keybindings
+### Project root detection
 
-| Key | Action |
-|---|---|
-| `C-n` / `↓` | Move selection down |
-| `C-p` / `↑` | Move selection up |
-| `RET` | Open in current window |
-| `C-s` | Open in horizontal split |
-| `C-v` | Open in vertical split |
-| `<backtab>` | Cycle grep mode (plain → regex → fuzzy) |
-| `C-g` / `<escape>` | Quit without selecting |
+fff automatically uses the git root of the current buffer's directory, and switches automatically when you move to a buffer in a different git repo.
+
+If you're outside a git repo, use `M-x fff-change-directory` to set a fallback root. This sets `fff-default-directory` which persists for the session. You can also set it permanently in your config:
+
+```elisp
+(setq fff-default-directory "~/projects/myrepo")
+```
+
+The resolution order is:
+
+1. Git root of the current buffer (auto-detected)
+2. `fff-default-directory` (set by `fff-change-directory`)
+3. Error with a helpful message
 
 ---
 
 ## Configuration
 
-```emacs-lisp
-(setq fff-library-path     "~/.local/lib/libfff_c.so"
-      fff-max-results      100
-      fff-max-threads      4
-      fff-debounce-delay   0.08
-      fff-preview-enabled  t
-      fff-frecency-db-path "~/.cache/fff_nvim"   ; share with Neovim
-      fff-history-db-path  "~/.local/share/fff_queries")
+```elisp
+(setq fff-max-results    100)   ; max results returned per search
+(setq fff-max-threads    0)     ; worker threads (0 = auto-detect)
+(setq fff-smart-case     t)     ; case-insensitive when query is lowercase
+
+;; Share frecency databases with the Neovim plugin for cross-editor scores
+(setq fff-frecency-db-path "~/.cache/fff_nvim")
+(setq fff-history-db-path  "~/.local/share/fff_queries")
+
+;; Fallback root when outside a git project
+(setq fff-default-directory nil) ; set to a path string to enable
 ```
 
-Setting `fff-frecency-db-path` and `fff-history-db-path` to the same
-paths used by the Neovim plugin means frecency and combo-boost scores
-are shared between both editors.
+---
 
+## Backend system
+
+fff.el separates the data layer (FFI calls, result collection) from the UI layer (completion framework). The active backend is set via `fff-backend`.
+
+### Built-in backends
+
+| File | Backend variable | Framework |
+|---|---|---|
+| `fff-helm.el` | `fff-backend-helm` | [helm](https://github.com/emacs-helm/helm) |
+| *(built-in)* | `fff--make-default-backend` | `completing-read` |
+
+Loading `fff-helm.el` automatically sets `fff-backend` to `fff-backend-helm`.
+
+### Writing your own backend
+
+A backend is a plist with two keys:
+
+```elisp
+(setq my-backend
+  (list
+   :pick-file
+   (lambda (candidate-fn action-fn)
+     ;; candidate-fn: (lambda (query) ...) → list of (display . plist)
+     ;; action-fn:    (lambda (plist) ...)  — called with the chosen result
+     ...)
+
+   :pick-grep
+   (lambda (candidate-fn action-fn)
+     ...)))
+
+(setq fff-backend my-backend)
+```
+
+The public functions your backend should call:
+
+- `(fff-file-candidates QUERY)` → list of `(path . plist)` cons cells
+- `(fff-grep-candidates QUERY)` → list of `("path:line:col  content" . plist)` cons cells
+- `(fff-open-result PLIST)` → opens the file, records frecency
+
+### Helm backend notes
+
+The helm backend uses top-level `defun`s for `:candidates` rather than lambdas. This is required because helm evaluates candidate functions in a dynamic binding context where anonymous lambdas that reference other functions by name fail with `void-function`. The named functions `fff--helm-candidates` and `fff--helm-grep-candidates` are always findable by symbol lookup.
+
+---
+
+## Development
+
+### Reloading after edits
+
+`define-ffi-function` uses `defun` internally, so reloading with `load-file` won't rebind already-defined symbols. Use the provided reload helpers instead:
+
+```elisp
+;; Reload fff core (preserves fff-backend across reload)
+M-x fff-reload
+
+;; Reload helm backend
+M-x fff-helm-reload
+```
+
+### Verifying the setup
+
+```elisp
+;; Check the library opened
+(fff--lib)             ; should return a user-ptr
+
+;; Check the instance
+fff--instance          ; user-ptr after first fff-find-file
+fff--current-base-path ; your project root
+
+;; Check the backend
+fff-backend            ; should be a plist, not nil
+(featurep 'fff-helm)   ; t if using helm
+(fboundp 'fff--helm-candidates) ; t if helm backend loaded correctly
+```
+
+### Struct offsets reference
+
+The C struct layouts are documented in comments at the top of `fff.el`. The key offsets used for reading results:
+
+| Struct | Field | Offset | Type |
+|---|---|---|---|
+| `FffResult` | `error` | 8 | `:pointer` |
+| `FffResult` | `handle` | 16 | `:pointer` |
+| `FffResult` | `int_value` | 24 | `:int64` |
+| `FffFileItem` | `path` | 0 | `:pointer` |
+| `FffFileItem` | `git_status` | 24 | `:pointer` |
+| `FffSearchResult` | `count` | 16 | `:uint32` |
+| `FffGrepResult` | `count` | 8 | `:uint32` |
+| `FffGrepMatch` | `path` | 0 | `:pointer` |
+| `FffGrepMatch` | `line_content` | 32 | `:pointer` |
+| `FffGrepMatch` | `line_number` | 104 | `:uint64` |
+| `FffGrepMatch` | `col` | 120 | `:uint32` |
+
+If fff.nvim changes its struct layouts in a future version, update the offset constants in the `;;; Struct field readers` section of `fff.el`.
+
+---
 
 ## Troubleshooting
 
-**`Library not found` error:**
-Run `M-x fff-dump-symbols` — if it produces output, the path is correct.
-If empty, check `fff-library-path`.
+**`module-open-failed` when loading ffi-module.so**
 
-**Symbol not found at runtime:**
-Run `M-x fff-check-symbols`.  If symbols are missing, the `fff-c` crate
-may have changed names since this file was written.  Check the actual
-exports with `nm -D libfff_c.so | grep ' T '` and update the string
-arguments in the `define-ffi-function` calls accordingly.
+The `.so` needs an absolute path passed to `module-load` before `(require 'ffi)`:
+```elisp
+(module-load "/absolute/path/to/emacs-ffi/ffi-module.so")
+```
 
-**Frecency not persisting:**
-Make sure `fff-frecency-db-path` points to a writable directory, and
-that `fff_init_db` returned `t` (check `*Messages*`).
+**`libfff_c` not found / `define-ffi-library` fails**
+
+Confirm `LD_LIBRARY_PATH` includes the directory with `libfff_c.so` and restart Emacs — environment variables must be set before Emacs starts, not inside `init.el`.
+
+**`fff-find-file` errors: "not in a project"**
+
+Run `M-x fff-change-directory` to set a fallback root, or add to your config:
+```elisp
+(setq fff-default-directory "/path/to/your/project")
+```
+
+**No candidates appear in helm**
+
+Run `M-x fff-helm-reload` to ensure the helm functions are freshly bound, then verify:
+```elisp
+(fboundp 'fff--helm-candidates)  ; must be t
+fff-backend                       ; must be non-nil
+fff--instance                     ; must be a user-ptr
+```
+
+**Emacs crashes when calling fff functions**
+
+Most likely a `uint64` argument is being mishandled by libffi. The `fff--wait-for-scan-poll` function intentionally avoids calling `fff_wait_for_scan` directly (which can crash with large `uint64` values on some libffi versions) and instead polls `fff_is_scanning` in a loop.
+
+**`void-function` errors in helm candidates**
+
+This happens when helm evaluates candidate functions in its dynamic binding context. The fix is already applied — candidate functions must be top-level `defun`s passed as quoted symbols (e.g. `'fff--helm-candidates`), not anonymous lambdas. If you see this after editing `fff-helm.el`, run `M-x fff-helm-reload`.
