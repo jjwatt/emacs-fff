@@ -49,7 +49,32 @@ fff.nvim ships three consumer interfaces: a Neovim Lua module (`libfff_nvim.so`)
 
 ## Installation
 
-### 1. Build `libfff_c.so`
+### With Makefile
+
+A `Makefile` is provided to make installation a little easier.
+
+```shell
+Targets:
+  make          — check prerequisites and build everything
+  make install  — build + install to INSTALL_DIR
+  make check    — verify prerequisites only
+  make clean    — remove .build/ directory
+  make uninstall — remove INSTALL_DIR
+
+Variables (override on command line):
+  INSTALL_DIR   default: /home/jwatt/.emacs.local/emacs-fff
+  EMACS         default: emacs
+  CARGO         default: cargo
+```
+
+```bash
+make
+make install
+```
+
+### Manual
+
+#### 1. Build `libfff_c.so`
 
 ```bash
 git clone https://github.com/dmtrKovalenko/fff.nvim
@@ -61,7 +86,7 @@ cargo build --release -p fff-c
 
 Or download the prebuilt `c-lib-{target}.so` from the [GitHub Releases](https://github.com/dmtrKovalenko/fff.nvim/releases) page.
 
-### 2. Make `libfff_c.so` findable
+#### 2. Make `libfff_c.so` findable
 
 `libltdl` (used by emacs-ffi) searches `LD_LIBRARY_PATH` on Linux and `DYLD_LIBRARY_PATH` on macOS. The simplest approach:
 
@@ -77,7 +102,7 @@ sudo cp target/release/libfff_c.so /usr/local/lib/
 sudo ldconfig
 ```
 
-### 3. Install `emacs-ffi`
+#### 3. Install `emacs-ffi`
 
 ```bash
 git clone https://github.com/tromey/emacs-ffi
@@ -94,11 +119,11 @@ You may need to change `emacs-ffi/ffi.el` to load the ffi so module like this:
 
 At least, I had to change it like that. I put both `emacs-ffi` and `emacs-fff` in `~/.emacs.local` and add them both the load path.
 
-### 4. Install `fff.el`
+#### 4. Install `fff.el`
 
 Copy `fff.el` and `fff-helm.el` (or whichever backend you want) to a directory on your `load-path`.
 
-### 5. Configure
+#### 5. Configure
 
 ```elisp
 ;; Load the native ffi module first — must be an absolute path
