@@ -79,11 +79,18 @@ all: check \
 install: all
 	@echo "==> Installing to $(INSTALL_DIR)"
 	@mkdir -p "$(INSTALL_DIR)"
-	cp fff.el          "$(INSTALL_DIR)/fff.el"
-	cp fff-helm.el     "$(INSTALL_DIR)/fff-helm.el"
-	cp "$(EMACS_FFI_DIR)/ffi.el"         "$(INSTALL_DIR)/ffi.el"
-	cp "$(BUILD_DIR)/$(EMACS_FFI_MODULE)" "$(INSTALL_DIR)/$(EMACS_FFI_MODULE)"
-	cp "$(BUILD_DIR)/$(LIBFFF_C)"         "$(INSTALL_DIR)/$(LIBFFF_C)"
+	cp fff.el                              "$(INSTALL_DIR)/fff.el"
+	cp fff-helm.el                         "$(INSTALL_DIR)/fff-helm.el"
+	cp "$(EMACS_FFI_DIR)/ffi.el"           "$(INSTALL_DIR)/ffi.el"
+	cp "$(BUILD_DIR)/$(EMACS_FFI_MODULE)"  "$(INSTALL_DIR)/$(EMACS_FFI_MODULE)"
+	cp "$(BUILD_DIR)/$(LIBFFF_C)"          "$(INSTALL_DIR)/$(LIBFFF_C)"
+	@# Patch ffi.el: remove the (module-load "ffi-module") call it contains.
+	@# emacs-ffi's ffi.el calls module-load with a bare name which doesn't
+	@# work reliably. We load the .so by absolute path in init.el instead,
+	@# before (require 'ffi), so ffi.el must not try to load it again.
+	sed -i.bak 's|(module-load "ffi-module")|;; module-load handled in init.el|' \
+	  "$(INSTALL_DIR)/ffi.el"
+	rm -f "$(INSTALL_DIR)/ffi.el.bak"
 	@$(LDCONFIG_CMD)
 	@echo ""
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -95,7 +102,7 @@ install: all
 	@echo "  (add-to-list 'load-path \"$(INSTALL_DIR)\")"
 	@echo "  (setenv \"LD_LIBRARY_PATH\""
 	@echo "          (concat \"$(INSTALL_DIR):\" (getenv \"LD_LIBRARY_PATH\")))"
-	@echo "  (load \"$(INSTALL_DIR)/ffi-module\")"
+	@echo "  (module-load (expand-file-name \"$(INSTALL_DIR)/$(EMACS_FFI_MODULE)\"))"
 	@echo "  (require 'fff-helm)  ; or fff-consult, fff-ivy, or fff"
 	@echo "  (global-set-key (kbd \"C-c f f\") #'fff-find-file)"
 	@echo "  (global-set-key (kbd \"C-c f g\") #'fff-grep)"
