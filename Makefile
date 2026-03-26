@@ -141,10 +141,7 @@ $(EMACS_FFI_DIR)/.git:
 
 $(BUILD_DIR)/$(EMACS_FFI_MODULE): $(EMACS_FFI_DIR)/.git
 	@echo "==> Building emacs-ffi ($(EMACS_FFI_MODULE))"
-	$(MAKE) -C "$(EMACS_FFI_DIR)" \
-	  EMACS="$(EMACS)" \
-	  CFLAGS="$(LTDL_CFLAGS) $(EMACS_CFLAGS)" \
-	  LDFLAGS="$(LTDL_LIBS)"
+	$(MAKE) -C "$(EMACS_FFI_DIR)"
 	cp "$(EMACS_FFI_DIR)/$(EMACS_FFI_MODULE)" "$(BUILD_DIR)/$(EMACS_FFI_MODULE)"
 
 # ──────────────────────────────────────────────────────────────────
