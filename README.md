@@ -67,7 +67,10 @@ Variables (override on command line):
   CARGO         default: cargo
 ```
 
+Make sure you run `make check` first to check that you have the required build dependencies. You'll need git, gcc or clang, libltdl and cargo.
+
 ```bash
+make check
 make
 make install
 ```
