@@ -203,6 +203,7 @@ fff.el separates the data layer (FFI calls, result collection) from the UI layer
 | File | Backend variable | Framework |
 |---|---|---|
 | `fff-helm.el` | `fff-backend-helm` | [helm](https://github.com/emacs-helm/helm) |
+| `fff-ivy.el` | `fff-backend-ivy` | [ivy](https://github.com/abo-abo/swiper)
 | *(built-in)* | `fff--make-default-backend` | `completing-read` |
 
 Loading `fff-helm.el` automatically sets `fff-backend` to `fff-backend-helm`.
