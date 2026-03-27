@@ -13,11 +13,10 @@
 ;;   (global-set-key (kbd "C-c f f") #'fff-find-file)
 ;;   (global-set-key (kbd "C-c f g") #'fff-grep)
 ;;
-;; This backend uses completing-read with a proper metadata table rather
-;; than consult's internal async API. Since consult installs itself as
-;; completing-read-function, you get the full consult UI automatically —
-;; preview, narrowing, embark integration — without fighting consult's
-;; private internals.
+;; Loading this file automatically sets `fff-backend' to `fff-backend-consult'.
+;;
+;; Uses consult--async-dynamic so that fff re-queries on every keystroke,
+;; giving you live frecency-scored results as you type.
 
 ;;; Code:
 
@@ -30,32 +29,10 @@
 (defun fff-consult-reload ()
   "Force reload of fff-consult, unbinding stale definitions first."
   (interactive)
-  (dolist (sym '(fff--consult-table
-                 fff-consult-reload))
+  (dolist (sym '(fff-consult-reload))
     (fmakunbound sym))
   (load-file (locate-library "fff-consult"))
   (message "fff-consult: reloaded"))
-
-;;; ──────────────────────────────────────────────────────────────────
-;;; Collection table builder
-
-(defun fff--consult-table (cands category)
-  "Build a completing-read table from CANDS with metadata CATEGORY.
-CANDS is a list of (display . plist) cons cells.
-Returns a programmed completion table that consult understands."
-  (let ((strings (mapcar #'car cands)))
-    (lambda (str pred flag)
-      (pcase flag
-        ('metadata
-         `(metadata
-           (category . ,category)
-           ;; Tell consult/vertico not to re-sort — fff already scored
-           (display-sort-function . identity)
-           (cycle-sort-function   . identity)))
-        ('t
-         (all-completions str strings pred))
-        (_
-         (try-completion str strings pred))))))
 
 ;;; ──────────────────────────────────────────────────────────────────
 ;;; Backend definition
@@ -64,24 +41,45 @@ Returns a programmed completion table that consult understands."
   (list
    :pick-file
    (lambda (_candidate-fn action-fn)
-     (let* ((cands  (fff-file-candidates ""))
-            (table  (fff--consult-table cands 'file))
-            (chosen (completing-read "fff › " table nil t)))
-       (when (and chosen (not (string-empty-p chosen)))
-         (when-let ((plist (cdr (assoc chosen cands))))
-           (funcall action-fn plist)))))
+     (let ((lookup (make-hash-table :test 'equal)))
+       (when-let
+           ((chosen
+             (consult--read
+              (consult--async-dynamic
+               (lambda (input)
+                 (let ((cands (fff-file-candidates input)))
+                   (clrhash lookup)
+                   (mapcar (lambda (c)
+                             (puthash (car c) (cdr c) lookup)
+                             (car c))
+                           cands))))
+              :prompt   "fff › "
+              :sort     nil
+              :category 'file
+              ;; consult calls :lookup with (cand cands input narrow)
+              :lookup   (lambda (cand _cands _input _narrow)
+                          (gethash cand lookup)))))
+         (funcall action-fn chosen))))
 
    :pick-grep
    (lambda (_candidate-fn action-fn)
-     (let* ((query  (read-string "fff grep query: "))
-            (cands  (fff-grep-candidates query))
-            (table  (fff--consult-table cands 'fff-grep))
-            (chosen (completing-read
-                     (format "fff grep [%s] › " query)
-                     table nil t)))
-       (when (and chosen (not (string-empty-p chosen)))
-         (when-let ((plist (cdr (assoc chosen cands))))
-           (funcall action-fn plist))))))
+     (let ((lookup (make-hash-table :test 'equal)))
+       (when-let
+           ((chosen
+             (consult--read
+              (consult--async-dynamic
+               (lambda (input)
+                 (let ((cands (fff-grep-candidates input)))
+                   (clrhash lookup)
+                   (mapcar (lambda (c)
+                             (puthash (car c) (cdr c) lookup)
+                             (car c))
+                           cands))))
+              :prompt "fff grep › "
+              :sort   nil
+              :lookup (lambda (cand _cands _input _narrow)
+                        (gethash cand lookup)))))
+         (funcall action-fn chosen)))))
   "Consult backend for fff.
 Set `fff-backend' to this value to use consult for fff pickers.")
 
