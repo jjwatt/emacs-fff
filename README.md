@@ -6,6 +6,11 @@ An Emacs frontend for [fff.nvim](https://github.com/dmtrKovalenko/fff.nvim) — 
 C-c f f  →  fuzzy file picker
 C-c f g  →  live grep
 ```
+## fff-find-file
+![fff-find-file](./fff-find-file.gif)
+
+## fff-grep
+![fff-grep](./fff-grep.gif)
 
 ---
 
