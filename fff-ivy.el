@@ -71,19 +71,17 @@
   (when-let ((plist (cdr (assoc display fff--ivy-candidates))))
     (funcall action-fn plist)))
 
-(defun fff--ivy-action-split-h (action-fn display)
-  "Open result in a horizontal split."
-  (when-let ((plist (cdr (assoc display fff--ivy-candidates))))
-    (split-window-below)
-    (other-window 1)
-    (funcall action-fn plist)))
+(defun fff--ivy-action-split-h (action-fn x)
+  "Open result in a horizontal split. X is a (display . plist) cons."
+  (split-window-below)
+  (other-window 1)
+  (funcall action-fn (cdr x)))
 
-(defun fff--ivy-action-split-v (action-fn display)
-  "Open result in a vertical split."
-  (when-let ((plist (cdr (assoc display fff--ivy-candidates))))
-    (split-window-right)
-    (other-window 1)
-    (funcall action-fn plist)))
+(defun fff--ivy-action-split-v (action-fn x)
+  "Open result in a vertical split. X is a (display . plist) cons."
+  (split-window-right)
+  (other-window 1)
+  (funcall action-fn (cdr x)))
 
 ;;; ──────────────────────────────────────────────────────────────────
 ;;; Backend definition
@@ -91,32 +89,72 @@
 (defvar fff-backend-ivy
   (list
    :pick-file
-   (lambda (_candidate-fn action-fn)
-     (ivy-read
-      "fff › "
-      #'fff--ivy-file-collection
-      :dynamic-collection t
-      :require-match t
-      :action
-      (lambda (display)
-        (fff--ivy-action action-fn display))
-      :multi-action
-      (lambda (displays)
-        (dolist (d displays)
-          (fff--ivy-action action-fn d)))
-      :caller 'fff-find-file))
+   (lambda (candidate-fn action-fn)
+     (let ((lookup (make-hash-table :test 'equal)))
+       (ivy-read
+        "fff › "
+        (lambda (query)
+          (let ((cands (funcall candidate-fn query)))
+            (mapcar (lambda (c)
+                      (puthash (car c) (cdr c) lookup)
+                      (car c))
+                    cands)))
+        :dynamic-collection t
+        :require-match t
+        :action
+        ;; Ivy allows a list of actions: (default-index (key func doc) ...)
+        ;; Using `list` here instead of quote ensures our closures capture `lookup`.
+        (list 1
+              (list "o" (lambda (cand)
+                          (when-let ((plist (gethash cand lookup)))
+                            (funcall action-fn plist)))
+                    "open")
+              (list "h" (lambda (cand)
+                          (when-let ((plist (gethash cand lookup)))
+                            (split-window-below)
+                            (other-window 1)
+                            (funcall action-fn plist)))
+                    "open in horizontal split")
+              (list "v" (lambda (cand)
+                          (when-let ((plist (gethash cand lookup)))
+                            (split-window-right)
+                            (other-window 1)
+                            (funcall action-fn plist)))
+                    "open in vertical split"))
+        :caller 'fff-find-file)))
 
    :pick-grep
-   (lambda (_candidate-fn action-fn)
-     (ivy-read
-      "fff grep › "
-      #'fff--ivy-grep-collection
-      :dynamic-collection t
-      :require-match t
-      :action
-      (lambda (display)
-        (fff--ivy-action action-fn display))
-      :caller 'fff-grep)))
+   (lambda (candidate-fn action-fn)
+     (let ((lookup (make-hash-table :test 'equal)))
+       (ivy-read
+        "fff grep › "
+        (lambda (query)
+          (let ((cands (funcall candidate-fn query)))
+            (mapcar (lambda (c)
+                      (puthash (car c) (cdr c) lookup)
+                      (car c))
+                    cands)))
+        :dynamic-collection t
+        :require-match t
+        :action
+        (list 1
+              (list "o" (lambda (cand)
+                          (when-let ((plist (gethash cand lookup)))
+                            (funcall action-fn plist)))
+                    "jump")
+              (list "h" (lambda (cand)
+                          (when-let ((plist (gethash cand lookup)))
+                            (split-window-below)
+                            (other-window 1)
+                            (funcall action-fn plist)))
+                    "jump in horizontal split")
+              (list "v" (lambda (cand)
+                          (when-let ((plist (gethash cand lookup)))
+                            (split-window-right)
+                            (other-window 1)
+                            (funcall action-fn plist)))
+                    "jump in vertical split"))
+        :caller 'fff-grep))))
   "Ivy backend for fff.
 Set `fff-backend' to this value to use ivy for fff pickers.")
 
@@ -125,20 +163,20 @@ Set `fff-backend' to this value to use ivy for fff pickers.")
 
 (ivy-set-actions
  'fff-find-file
- '(("h" (lambda (d)
-          (fff--ivy-action-split-h #'fff-open-result d))
+ '(("h" (lambda (x)
+          (fff--ivy-action-split-h #'fff-open-result x))
     "open in horizontal split")
-   ("v" (lambda (d)
-          (fff--ivy-action-split-v #'fff-open-result d))
+   ("v" (lambda (x)
+          (fff--ivy-action-split-v #'fff-open-result x))
     "open in vertical split")))
 
 (ivy-set-actions
  'fff-grep
- '(("h" (lambda (d)
-          (fff--ivy-action-split-h #'fff-open-result d))
+ '(("h" (lambda (x)
+          (fff--ivy-action-split-h #'fff-open-result x))
     "jump in horizontal split")
-   ("v" (lambda (d)
-          (fff--ivy-action-split-v #'fff-open-result d))
+   ("v" (lambda (x)
+          (fff--ivy-action-split-v #'fff-open-result x))
     "jump in vertical split")))
 
 ;;; ──────────────────────────────────────────────────────────────────
