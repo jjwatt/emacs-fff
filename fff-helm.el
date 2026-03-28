@@ -29,43 +29,40 @@
 (defun fff-helm-reload ()
   "Force reload of fff-helm, unbinding stale definitions first."
   (interactive)
-  (dolist (sym '(fff--helm-candidates
-                 fff--helm-grep-candidates
-                 fff--helm-file-source
-                 fff--helm-grep-source
+  (dolist (sym '(fff--helm-current-candidate-fn
+                 fff--helm-candidates
+                 fff--helm-build-source
                  fff-helm-reload))
     (fmakunbound sym))
   (load-file (locate-library "fff-helm"))
   (message "fff-helm: reloaded"))
 
 ;;; ──────────────────────────────────────────────────────────────────
-;;; Named candidate functions
-;;
-;; These must be top-level defuns, not lambdas.
-;; Helm looks up :candidates by symbol at call time, so the function
-;; must be globally interned — an anonymous lambda in a dynamic
-;; binding context will fail with void-function.
+;;; Dynamic State & Generic Candidate Function
+
+(defvar fff--helm-current-candidate-fn nil
+  "Dynamically bound candidate generator for the active Helm session.
+This allows us to pass different candidate functions (files vs. grep)
+to a single globally interned Helm source without hardcoding them.")
 
 (defun fff--helm-candidates ()
-  "Return fff file candidates for the current helm pattern."
-  (fff-file-candidates (or helm-pattern "")))
-
-(defun fff--helm-grep-candidates ()
-  "Return fff grep candidates for the current helm pattern."
-  (fff-grep-candidates (or helm-pattern "")))
+  "Call the active candidate function with the current helm pattern.
+Helm requires `:candidates` to be a globally interned symbol, not a lambda."
+  (when fff--helm-current-candidate-fn
+    (funcall fff--helm-current-candidate-fn (or helm-pattern ""))))
 
 ;;; ──────────────────────────────────────────────────────────────────
-;;; Source constructors
+;;; Generic Source Constructor
 
-(defun fff--helm-file-source (action-fn)
-  "Build a helm source for file search, calling ACTION-FN on selection."
-  (helm-make-source "fff files" 'helm-source-sync
+(defun fff--helm-build-source (name action-fn)
+  "Build a generic Helm sync source named NAME using ACTION-FN."
+  (helm-build-sync-source name
     :candidates 'fff--helm-candidates
     :match (lambda (_) t)
     :volatile t
     :action
     (helm-make-actions
-     "Open file"
+     "Open / Jump"
      action-fn
      "Open in horizontal split"
      (lambda (plist)
@@ -78,42 +75,25 @@
        (other-window 1)
        (funcall action-fn plist)))))
 
-(defun fff--helm-grep-source (action-fn)
-  "Build a helm source for grep, calling ACTION-FN on selection."
-  (helm-make-source "fff grep" 'helm-source-sync
-    :candidates 'fff--helm-grep-candidates
-    :match (lambda (_) t)
-    :volatile t
-    :action
-    (helm-make-actions
-     "Jump to match"
-     action-fn
-     "Jump in horizontal split"
-     (lambda (plist)
-       (split-window-below)
-       (other-window 1)
-       (funcall action-fn plist))
-     "Jump in vertical split"
-     (lambda (plist)
-       (split-window-right)
-       (other-window 1)
-       (funcall action-fn plist)))))
-
 ;;; ──────────────────────────────────────────────────────────────────
 ;;; Backend definition
 
 (defvar fff-backend-helm
   (list
    :pick-file
-   (lambda (_candidate-fn action-fn)
-     (helm :sources (fff--helm-file-source action-fn)
-           :buffer  "*helm fff*"
-           :prompt  "fff › "))
+   (lambda (candidate-fn action-fn)
+     ;; Dynamically bind the candidate-fn so the global symbol can see it
+     (let ((fff--helm-current-candidate-fn candidate-fn))
+       (helm :sources (fff--helm-build-source "fff files" action-fn)
+             :buffer  "*helm fff*"
+             :prompt  "fff › ")))
+
    :pick-grep
-   (lambda (_candidate-fn action-fn)
-     (helm :sources (fff--helm-grep-source action-fn)
-           :buffer  "*helm fff grep*"
-           :prompt  "fff grep › ")))
+   (lambda (candidate-fn action-fn)
+     (let ((fff--helm-current-candidate-fn candidate-fn))
+       (helm :sources (fff--helm-build-source "fff grep" action-fn)
+             :buffer  "*helm fff grep*"
+             :prompt  "fff grep › "))))
   "Helm backend for fff.
 Set `fff-backend' to this value to use helm for fff pickers.")
 
