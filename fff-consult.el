@@ -40,37 +40,35 @@
 (defvar fff-backend-consult
   (list
    :pick-file
-   (lambda (_candidate-fn action-fn)
+   (lambda (candidate-fn action-fn)
      (let ((lookup (make-hash-table :test 'equal)))
        (when-let
            ((chosen
              (consult--read
               (consult--async-dynamic
                (lambda (input)
-                 (let ((cands (fff-file-candidates input)))
-                   (clrhash lookup)
+                 (let ((cands (funcall candidate-fn input)))
                    (mapcar (lambda (c)
+                             ;; Map the string to the plist without clearing the table
                              (puthash (car c) (cdr c) lookup)
                              (car c))
                            cands))))
               :prompt   "fff › "
               :sort     nil
               :category 'file
-              ;; consult calls :lookup with (cand cands input narrow)
               :lookup   (lambda (cand _cands _input _narrow)
                           (gethash cand lookup)))))
          (funcall action-fn chosen))))
 
    :pick-grep
-   (lambda (_candidate-fn action-fn)
+   (lambda (candidate-fn action-fn)
      (let ((lookup (make-hash-table :test 'equal)))
        (when-let
            ((chosen
              (consult--read
               (consult--async-dynamic
                (lambda (input)
-                 (let ((cands (fff-grep-candidates input)))
-                   (clrhash lookup)
+                 (let ((cands (funcall candidate-fn input)))
                    (mapcar (lambda (c)
                              (puthash (car c) (cdr c) lookup)
                              (car c))
@@ -79,9 +77,9 @@
               :sort   nil
               :lookup (lambda (cand _cands _input _narrow)
                         (gethash cand lookup)))))
-         (funcall action-fn chosen)))))
-  "Consult backend for fff.
-Set `fff-backend' to this value to use consult for fff pickers.")
+         (funcall action-fn chosen))))
+"Consult backend for fff.
+Set `fff-backend' to this value to use consult for fff pickers."))
 
 ;;; ──────────────────────────────────────────────────────────────────
 ;;; Activate

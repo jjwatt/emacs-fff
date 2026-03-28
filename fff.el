@@ -469,8 +469,11 @@ or leave nil to use the built-in `fff-backend-default'.")
   (interactive)
   (let ((base (fff--get-base-path)))
     (fff--ensure-instance base)
-    (fff--wait-for-scan-poll 10000)
-    (fff--backend-pick-file #'fff-file-candidates #'fff-open-result)))
+    ;; Check if the scan completes within the window
+    (if (fff--wait-for-scan-poll 10000)
+	(fff--backend-pick-file #'fff-file-candidates #'fff-open-result)
+      ;; Timeout: Abort and warn the user.
+      (user-error "fff: Initial file scan timed out. Try M-x fff-refresh"))))
 
 ;;;###autoload
 (defun fff-grep ()
