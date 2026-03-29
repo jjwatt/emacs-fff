@@ -151,9 +151,37 @@ check:
 	@command -v cc >/dev/null 2>&1 || command -v gcc >/dev/null 2>&1 || \
 	  command -v clang >/dev/null 2>&1 || \
 	  { echo "ERROR: no C compiler found. Install gcc or clang."; exit 1; }
+	@echo "#include <ltdl.h>" | cc -x c - -c -o /dev/null $(LTDL_CFLAGS) 2>/dev/null || \
+	  { echo ""; \
+	    echo "ERROR: ltdl headers not found."; \
+	    echo "  Fedora/RHEL:   sudo dnf install libtool-ltdl-devel"; \
+	    echo "  Debian/Ubuntu: sudo apt install libltdl-dev"; \
+	    echo "  macOS:         brew install libtool"; \
+	    echo ""; exit 1; }
+	@echo "#include <ffi.h>" | cc -x c - -c -o /dev/null $(LIBFFI_CFLAGS) 2>/dev/null || \
+	  { echo ""; \
+	    echo "ERROR: libffi headers not found."; \
+	    echo "  Fedora/RHEL:   sudo dnf install libffi-devel"; \
+	    echo "  Debian/Ubuntu: sudo apt install libffi-dev"; \
+	    echo "  macOS:         brew install libffi"; \
+	    echo ""; exit 1; }
+	@test -n "$(EMACS_INCLUDE)" || \
+	  { echo ""; \
+	    echo "ERROR: emacs-module.h not found."; \
+	    echo "  This file ships with Emacs itself."; \
+	    echo "  Find it: find / -name emacs-module.h 2>/dev/null"; \
+	    echo "  Then:    make EMACS_INCLUDE=/path/to/dir/containing/it"; \
+	    echo ""; exit 1; }
 	@test -d "$(VENDORED_FFI_DIR)" || \
 	  { echo "ERROR: Vendored emacs-ffi directory not found at $(VENDORED_FFI_DIR)"; exit 1; }
-	@echo "  [ok] Prerequisites met"
+	@echo "  [ok] emacs"
+	@echo "  [ok] cargo"
+	@echo "  [ok] git"
+	@echo "  [ok] C compiler"
+	@echo "  [ok] ltdl headers"
+	@echo "  [ok] libffi headers"
+	@echo "  [ok] emacs-module.h ($(EMACS_INCLUDE))"
+	@echo "  [ok] vendored emacs-ffi"
 
 # ──────────────────────────────────────────────────────────────────
 # emacs-ffi (Vendored)
