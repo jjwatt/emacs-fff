@@ -11,11 +11,11 @@
 #   macOS:         brew install libtool libffi
 #
 # USAGE
-#   make            — build everything
-#   make install    — build + install to INSTALL_DIR
-#   make check      — verify prerequisites
-#   make clean      — remove build artefacts (keeps installed files)
-#   make uninstall  — remove installed files
+#   make           — build everything
+#   make install   — build + install to INSTALL_DIR
+#   make check     — verify prerequisites
+#   make clean     — remove build artefacts (keeps installed files)
+#   make uninstall — remove installed files
 #
 # OVERRIDES
 #   make INSTALL_DIR=~/.config/emacs/fff
@@ -30,11 +30,12 @@ CARGO          ?= cargo
 GIT            ?= git
 
 FFF_NVIM_REPO  ?= https://github.com/dmtrKovalenko/fff.nvim
-EMACS_FFI_REPO ?= https://github.com/tromey/emacs-ffi
+
+# Path to your vendored emacs-ffi directory
+VENDORED_FFI_DIR := $(CURDIR)/emacs-ffi
 
 BUILD_DIR      := $(CURDIR)/.build
 FFF_NVIM_DIR   := $(BUILD_DIR)/fff.nvim
-EMACS_FFI_DIR  := $(BUILD_DIR)/emacs-ffi
 
 # ──────────────────────────────────────────────────────────────────
 # Platform detection
@@ -77,12 +78,6 @@ EMACS_FFI_MODULE := ffi-module.$(LIB_EXT)
 
 # ──────────────────────────────────────────────────────────────────
 # Locate emacs-module.h
-#
-# We compile ffi-module.c ourselves rather than using emacs-ffi's
-# Makefile, which has the author's local Emacs source path hardcoded.
-# emacs-module.h ships inside the Emacs installation.
-#
-# Override with: make EMACS_INCLUDE=/path/to/dir
 
 ifndef EMACS_INCLUDE
   ifeq ($(OS),Darwin)
@@ -128,49 +123,15 @@ install: all
 	cp fff-helm.el                         "$(INSTALL_DIR)/fff-helm.el"
 	cp fff-ivy.el                          "$(INSTALL_DIR)/fff-ivy.el"
 	cp fff-consult.el                      "$(INSTALL_DIR)/fff-consult.el"
-	cp "$(EMACS_FFI_DIR)/ffi.el"           "$(INSTALL_DIR)/ffi.el"
+	cp "$(VENDORED_FFI_DIR)/ffi.el"        "$(INSTALL_DIR)/ffi.el"
 	cp "$(BUILD_DIR)/$(EMACS_FFI_MODULE)"  "$(INSTALL_DIR)/$(EMACS_FFI_MODULE)"
 	cp "$(BUILD_DIR)/$(LIBFFF_C)"          "$(INSTALL_DIR)/$(LIBFFF_C)"
-	@# Patch ffi.el: remove its (module-load "ffi-module") call.
-	@# We load ffi-module by absolute path in init.el before (require 'ffi).
-	sed -i.bak 's|(module-load "ffi-module")|;; module-load handled in init.el|' \
-	  "$(INSTALL_DIR)/ffi.el"
-	rm -f "$(INSTALL_DIR)/ffi.el.bak"
-	@# Generate wrapper script that sets the library path before launching Emacs.
-	@# setenv inside Emacs is too late — libltdl's dlopen runs before init.el.
 	@echo "==> Generating emacs-fff wrapper script"
 	@printf '#!/bin/sh\nexport LD_LIBRARY_PATH="$(INSTALL_DIR)$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}"\nexport DYLD_LIBRARY_PATH="$(INSTALL_DIR)$${DYLD_LIBRARY_PATH:+:$$DYLD_LIBRARY_PATH}"\nexec emacs "$$@"\n' \
 	  > "$(INSTALL_DIR)/emacs-fff"
 	@chmod +x "$(INSTALL_DIR)/emacs-fff"
-	@echo ""
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@echo "Installation complete!"
-	@echo ""
-	@echo "OPTION 1 — Launch Emacs via the wrapper script (recommended):"
-	@echo ""
-	@echo "  $(INSTALL_DIR)/emacs-fff"
-	@echo ""
-	@echo "  Symlink it for convenience:"
-	@echo "  ln -s $(INSTALL_DIR)/emacs-fff ~/bin/emacs-fff"
-	@echo ""
-	@echo "OPTION 2 — Set the library path in your shell before launching Emacs:"
-	@echo ""
-	@echo "  # Linux — add to ~/.profile or ~/.bash_profile:"
-	@echo "  export LD_LIBRARY_PATH=\"$(INSTALL_DIR):\$$LD_LIBRARY_PATH\""
-	@echo ""
-	@echo "  # macOS — add to ~/.zshrc or ~/.bash_profile:"
-	@echo "  export DYLD_LIBRARY_PATH=\"$(INSTALL_DIR):\$$DYLD_LIBRARY_PATH\""
-	@echo ""
-	@echo "Then add this to your init.el:"
-	@echo ""
-	@echo "  ;; fff — fuzzy file finder"
-	@echo "  (add-to-list 'load-path \"$(INSTALL_DIR)\")"
-	@echo "  (module-load (expand-file-name \"$(INSTALL_DIR)/$(EMACS_FFI_MODULE)\"))"
-	@echo "  (require 'fff-helm)    ; or fff-consult, fff-ivy, or just fff"
-	@echo "  (global-set-key (kbd \"C-c f f\") #'fff-find-file)"
-	@echo "  (global-set-key (kbd \"C-c f g\") #'fff-grep)"
-	@echo ""
-	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 # ──────────────────────────────────────────────────────────────────
 # Prerequisite check
@@ -190,59 +151,28 @@ check:
 	@command -v cc >/dev/null 2>&1 || command -v gcc >/dev/null 2>&1 || \
 	  command -v clang >/dev/null 2>&1 || \
 	  { echo "ERROR: no C compiler found. Install gcc or clang."; exit 1; }
-	@echo "#include <ltdl.h>" | cc -x c - -c -o /dev/null $(LTDL_CFLAGS) 2>/dev/null || \
-	  { echo ""; \
-	    echo "ERROR: ltdl headers not found."; \
-	    echo "  Fedora/RHEL:   sudo dnf install libtool-ltdl-devel"; \
-	    echo "  Debian/Ubuntu: sudo apt install libltdl-dev"; \
-	    echo "  macOS:         brew install libtool"; \
-	    echo ""; exit 1; }
-	@echo "#include <ffi.h>" | cc -x c - -c -o /dev/null $(LIBFFI_CFLAGS) 2>/dev/null || \
-	  { echo ""; \
-	    echo "ERROR: libffi headers not found."; \
-	    echo "  Fedora/RHEL:   sudo dnf install libffi-devel"; \
-	    echo "  Debian/Ubuntu: sudo apt install libffi-dev"; \
-	    echo "  macOS:         brew install libffi"; \
-	    echo ""; exit 1; }
-	@test -n "$(EMACS_INCLUDE)" || \
-	  { echo ""; \
-	    echo "ERROR: emacs-module.h not found."; \
-	    echo "  This file ships with Emacs itself."; \
-	    echo "  Find it: find / -name emacs-module.h 2>/dev/null"; \
-	    echo "  Then:    make EMACS_INCLUDE=/path/to/dir/containing/it"; \
-	    echo ""; exit 1; }
-	@echo "  [ok] emacs"
-	@echo "  [ok] cargo"
-	@echo "  [ok] git"
-	@echo "  [ok] C compiler"
-	@echo "  [ok] ltdl headers"
-	@echo "  [ok] libffi headers"
-	@echo "  [ok] emacs-module.h ($(EMACS_INCLUDE))"
+	@test -d "$(VENDORED_FFI_DIR)" || \
+	  { echo "ERROR: Vendored emacs-ffi directory not found at $(VENDORED_FFI_DIR)"; exit 1; }
+	@echo "  [ok] Prerequisites met"
 
 # ──────────────────────────────────────────────────────────────────
-# emacs-ffi
-#
-# We compile ffi-module.c directly rather than using emacs-ffi's own
-# Makefile, which has the author's local Emacs source path hardcoded
-# and is not portable. We know exactly what flags are needed.
+# emacs-ffi (Vendored)
 
-$(EMACS_FFI_DIR)/.git:
-	@echo "==> Cloning emacs-ffi"
+$(BUILD_DIR)/$(EMACS_FFI_MODULE): $(VENDORED_FFI_DIR)/ffi-module.c
+	@echo "==> Building vendored ffi-module"
 	@mkdir -p "$(BUILD_DIR)"
-	$(GIT) clone --depth=1 "$(EMACS_FFI_REPO)" "$(EMACS_FFI_DIR)"
-
-$(BUILD_DIR)/$(EMACS_FFI_MODULE): $(EMACS_FFI_DIR)/.git
-	@echo "==> Building ffi-module"
-	cd "$(EMACS_FFI_DIR)" && \
 	cc -g -fPIC $(SHARED_FLAG) \
 	  -I"$(EMACS_INCLUDE)" \
 	  $(LTDL_CFLAGS) \
 	  $(LIBFFI_CFLAGS) \
-	  -o "$(EMACS_FFI_MODULE)" \
-	  ffi-module.c \
+	  -o "$@" \
+	  "$(VENDORED_FFI_DIR)/ffi-module.c" \
 	  $(LTDL_LIBS) \
 	  $(LIBFFI_LIBS)
-	cp "$(EMACS_FFI_DIR)/$(EMACS_FFI_MODULE)" "$(BUILD_DIR)/$(EMACS_FFI_MODULE)"
+ifeq ($(OS),Darwin)
+	@echo "==> Patching macOS dynamic library links for ffi-module"
+	install_name_tool -id "@loader_path/$(EMACS_FFI_MODULE)" "$@"
+endif
 
 # ──────────────────────────────────────────────────────────────────
 # libfff_c
@@ -257,8 +187,11 @@ $(BUILD_DIR)/$(LIBFFF_C): $(FFF_NVIM_DIR)/.git
 	$(CARGO) build --release \
 	  --manifest-path "$(FFF_NVIM_DIR)/Cargo.toml" \
 	  -p fff-c
-	cp "$(FFF_NVIM_DIR)/target/release/$(LIBFFF_C)" \
-	   "$(BUILD_DIR)/$(LIBFFF_C)"
+	cp "$(FFF_NVIM_DIR)/target/release/$(LIBFFF_C)" "$@"
+ifeq ($(OS),Darwin)
+	@echo "==> Patching macOS dynamic library links for libfff_c"
+	install_name_tool -id "@loader_path/$(LIBFFF_C)" "$@"
+endif
 
 # ──────────────────────────────────────────────────────────────────
 # Housekeeping
@@ -275,12 +208,4 @@ help:
 	@echo "Targets:"
 	@echo "  make            — check prerequisites and build everything"
 	@echo "  make install    — build + install to INSTALL_DIR"
-	@echo "  make check      — verify prerequisites only"
 	@echo "  make clean      — remove .build/ directory"
-	@echo "  make uninstall  — remove INSTALL_DIR"
-	@echo ""
-	@echo "Variables (override on command line):"
-	@echo "  INSTALL_DIR     default: $(HOME)/.emacs.local/emacs-fff"
-	@echo "  EMACS           default: emacs"
-	@echo "  CARGO           default: cargo"
-	@echo "  EMACS_INCLUDE   default: auto-detected (dir containing emacs-module.h)"
