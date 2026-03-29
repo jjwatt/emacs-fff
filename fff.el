@@ -33,7 +33,19 @@
 ;;; ──────────────────────────────────────────────────────────────────
 ;;; Library
 
-(define-ffi-library fff--lib "libfff_c")
+;; Determine the correct extension for the OS.
+(defvar fff--lib-extension (if (eq system-type 'darwin) ".dylib" ".so"))
+
+;; Find the library relative to THIS file's location.
+(defvar fff--lib-path
+  (let ((dir (file-name-directory (or load-file-name buffer-file-name))))
+    (expand-file-name (concat "libfff_c" fff--lib-extension) dir)))
+
+;; Fallback: If it's not in the folder, let the system try to find it
+(unless (file-exists-p fff--lib-path)
+  (setq fff--lib-path "libfff_c"))
+
+(define-ffi-library fff--lib fff--lib-path)
 
 ;;; ──────────────────────────────────────────────────────────────────
 ;;; Struct layouts (all repr(C), 64-bit)
@@ -221,11 +233,11 @@ Signals an error on failure. Always frees the FffResult envelope."
   (let ((rptr (gensym "result")))
     `(let ((,rptr ,call))
        (unwind-protect
-           (if (fff--result-ok-p ,rptr)
-               (let ((,var (fff--result-handle ,rptr)))
-                 ,@body)
-             (error "fff: %s" (fff--result-error ,rptr)))
-         (fff--ffi-free-result ,rptr)))))
+	   (if (fff--result-ok-p ,rptr)
+	       (let ((,var (fff--result-handle ,rptr)))
+		 ,@body)
+	     (error "fff: %s" (fff--result-error ,rptr)))
+	 (fff--ffi-free-result ,rptr)))))
 
 ;;; ──────────────────────────────────────────────────────────────────
 ;;; Reload helper
@@ -236,13 +248,13 @@ Preserves the active backend across reloads."
   (interactive)
   (let ((saved-backend fff-backend))
     (dolist (sym '(fff--ffi-create-instance fff--ffi-destroy
-                   fff--ffi-search fff--ffi-live-grep
-                   fff--ffi-scan-files fff--ffi-is-scanning
-                   fff--ffi-restart-index fff--ffi-refresh-git-status
-                   fff--ffi-track-query fff--ffi-free-result
-                   fff--ffi-free-search-result fff--ffi-free-grep-result
-                   fff--ffi-free-string fff--ffi-search-result-get-item
-                   fff--ffi-grep-result-get-match))
+		   fff--ffi-search fff--ffi-live-grep
+		   fff--ffi-scan-files fff--ffi-is-scanning
+		   fff--ffi-restart-index fff--ffi-refresh-git-status
+		   fff--ffi-track-query fff--ffi-free-result
+		   fff--ffi-free-search-result fff--ffi-free-grep-result
+		   fff--ffi-free-string fff--ffi-search-result-get-item
+		   fff--ffi-grep-result-get-match))
       (fmakunbound sym))
     (load-file (locate-library "fff"))
     (setq fff-backend saved-backend)
@@ -305,7 +317,7 @@ change to a buffer in a different git repo."
    (ignore-errors (fff--project-root))
    ;; 2. Explicit fallback set by fff-change-directory
    (and fff-default-directory
-        (expand-file-name fff-default-directory))
+	(expand-file-name fff-default-directory))
    ;; 3. Keep existing instance rather than error
    fff--current-base-path
    ;; 4. Give up
@@ -319,23 +331,23 @@ Use M-x fff-change-directory to set one")))
   (unless fff--instance
     (fff--with-cstring bp base-path
       (fff--with-cstring fp (expand-file-name fff-frecency-db-path)
-        (fff--with-cstring hp (expand-file-name fff-history-db-path)
-          (fff--with-result handle
-              (fff--ffi-create-instance bp fp hp nil nil nil)
-            (setq fff--instance handle
-                  fff--current-base-path base-path)))))))
+	(fff--with-cstring hp (expand-file-name fff-history-db-path)
+	  (fff--with-result handle
+	      (fff--ffi-create-instance bp fp hp nil nil nil)
+	    (setq fff--instance handle
+		  fff--current-base-path base-path)))))))
 
 (defun fff--destroy-instance ()
   (when fff--instance
     (fff--ffi-destroy fff--instance)
     (setq fff--instance nil
-          fff--current-base-path nil)))
+	  fff--current-base-path nil)))
 
 (defun fff--wait-for-scan-poll (timeout-ms)
   "Poll fff_is_scanning until done or TIMEOUT-MS elapses."
   (let ((deadline (+ (float-time) (/ timeout-ms 1000.0))))
     (while (and (fff--ffi-is-scanning fff--instance)
-                (< (float-time) deadline))
+		(< (float-time) deadline))
       (sleep-for 0.05)))
   (not (fff--ffi-is-scanning fff--instance)))
 
@@ -347,62 +359,62 @@ Use M-x fff-change-directory to set one")))
   (when fff--instance
     (fff--with-cstring qp query
       (fff--with-result sr-ptr
-          (fff--ffi-search fff--instance qp (ffi-null-pointer)
-                           fff-max-threads 0 fff-max-results 0 0)
-        (let ((count (fff--search-result-count sr-ptr))
-              results)
-          (dotimes (i count)
-            (let ((item (fff--ffi-search-result-get-item sr-ptr i)))
-              (unless (ffi-pointer-null-p item)
-                (push (list :path       (fff--file-item-path item)
-                            :git-status (fff--file-item-git-status item))
-                      results))))
-          (fff--ffi-free-search-result sr-ptr)
-          (nreverse results))))))
+	  (fff--ffi-search fff--instance qp (ffi-null-pointer)
+			   fff-max-threads 0 fff-max-results 0 0)
+	(let ((count (fff--search-result-count sr-ptr))
+	      results)
+	  (dotimes (i count)
+	    (let ((item (fff--ffi-search-result-get-item sr-ptr i)))
+	      (unless (ffi-pointer-null-p item)
+		(push (list :path       (fff--file-item-path item)
+			    :git-status (fff--file-item-git-status item))
+		      results))))
+	  (fff--ffi-free-search-result sr-ptr)
+	  (nreverse results))))))
 
 (defun fff--grep-raw (query)
   "Run grep for QUERY, return raw list of result plists."
   (when fff--instance
     (fff--with-cstring qp query
       (fff--with-result gr-ptr
-          (fff--ffi-live-grep fff--instance qp
-                              0              ; mode: plain
-                              0 0            ; max_file_size, max_matches_per_file
-                              fff-smart-case
-                              0              ; file_offset
-                              fff-max-results
-                              0 0 0          ; time_budget_ms, before/after context
-                              nil)           ; classify_definitions
-        (let ((count (fff--grep-result-count gr-ptr))
-              results)
-          (dotimes (i count)
-            (let ((match (fff--ffi-grep-result-get-match gr-ptr i)))
-              (unless (ffi-pointer-null-p match)
-                (push (list :path    (fff--grep-match-path match)
-                            :line    (fff--grep-match-line match)
-                            :col     (fff--grep-match-col match)
-                            :content (fff--grep-match-line-content match))
-                      results))))
-          (fff--ffi-free-grep-result gr-ptr)
-          (nreverse results))))))
+	  (fff--ffi-live-grep fff--instance qp
+			      0              ; mode: plain
+			      0 0            ; max_file_size, max_matches_per_file
+			      fff-smart-case
+			      0              ; file_offset
+			      fff-max-results
+			      0 0 0          ; time_budget_ms, before/after context
+			      nil)           ; classify_definitions
+	(let ((count (fff--grep-result-count gr-ptr))
+	      results)
+	  (dotimes (i count)
+	    (let ((match (fff--ffi-grep-result-get-match gr-ptr i)))
+	      (unless (ffi-pointer-null-p match)
+		(push (list :path    (fff--grep-match-path match)
+			    :line    (fff--grep-match-line match)
+			    :col     (fff--grep-match-col match)
+			    :content (fff--grep-match-line-content match))
+		      results))))
+	  (fff--ffi-free-grep-result gr-ptr)
+	  (nreverse results))))))
 
 (defun fff-file-candidates (query)
   "Return (display . plist) candidates for file search QUERY."
   (setq fff--last-query query)
   (mapcar (lambda (r) (cons (plist-get r :path) r))
-          (fff--search-raw query)))
+	  (fff--search-raw query)))
 
 (defun fff-grep-candidates (query)
   "Return (display . plist) candidates for grep QUERY."
   (setq fff--last-query query)
   (mapcar (lambda (r)
-            (cons (format "%s:%d:%d  %s"
-                          (plist-get r :path)
-                          (or (plist-get r :line) 0)
-                          (or (plist-get r :col)  0)
-                          (or (plist-get r :content) ""))
-                  r))
-          (fff--grep-raw query)))
+	    (cons (format "%s:%d:%d  %s"
+			  (plist-get r :path)
+			  (or (plist-get r :line) 0)
+			  (or (plist-get r :col)  0)
+			  (or (plist-get r :content) ""))
+		  r))
+	  (fff--grep-raw query)))
 
 ;;; ──────────────────────────────────────────────────────────────────
 ;;; Open action
@@ -410,13 +422,13 @@ Use M-x fff-change-directory to set one")))
 (defun fff-open-result (plist)
   "Open the file described by result PLIST."
   (let ((path (plist-get plist :path))
-        (line (plist-get plist :line)))
+	(line (plist-get plist :line)))
     (when (and fff--instance
-               (not (string-empty-p fff--last-query)))
+	       (not (string-empty-p fff--last-query)))
       (fff--with-cstring qp fff--last-query
-        (fff--with-cstring pp path
-          (fff--ffi-free-result
-           (fff--ffi-track-query fff--instance qp pp)))))
+	(fff--with-cstring pp path
+	  (fff--ffi-free-result
+	   (fff--ffi-track-query fff--instance qp pp)))))
     (find-file path)
     (when line
       (goto-char (point-min))
@@ -435,11 +447,11 @@ or leave nil to use the built-in `fff-backend-default'.")
 
 (defun fff--backend-pick-file (candidate-fn action-fn)
   (funcall (plist-get (fff--active-backend) :pick-file)
-           candidate-fn action-fn))
+	   candidate-fn action-fn))
 
 (defun fff--backend-pick-grep (candidate-fn action-fn)
   (funcall (plist-get (fff--active-backend) :pick-grep)
-           candidate-fn action-fn))
+	   candidate-fn action-fn))
 
 ;;; ──────────────────────────────────────────────────────────────────
 ;;; Default backend (plain completing-read)
@@ -449,16 +461,16 @@ or leave nil to use the built-in `fff-backend-default'.")
    :pick-file
    (lambda (candidate-fn action-fn)
      (let* ((cands  (funcall candidate-fn ""))
-            (chosen (completing-read "fff › " (mapcar #'car cands) nil t)))
+	    (chosen (completing-read "fff › " (mapcar #'car cands) nil t)))
        (when chosen
-         (funcall action-fn (cdr (assoc chosen cands))))))
+	 (funcall action-fn (cdr (assoc chosen cands))))))
    :pick-grep
    (lambda (candidate-fn action-fn)
      (let* ((query  (read-string "fff grep › "))
-            (cands  (funcall candidate-fn query))
-            (chosen (completing-read "match › " (mapcar #'car cands) nil t)))
+	    (cands  (funcall candidate-fn query))
+	    (chosen (completing-read "match › " (mapcar #'car cands) nil t)))
        (when chosen
-         (funcall action-fn (cdr (assoc chosen cands))))))))
+	 (funcall action-fn (cdr (assoc chosen cands))))))))
 
 ;;; ──────────────────────────────────────────────────────────────────
 ;;; Public entry points
@@ -488,7 +500,7 @@ or leave nil to use the built-in `fff-backend-default'.")
   "Grep for the word at point."
   (interactive)
   (let ((base (fff--get-base-path))
-        (word (thing-at-point 'word t)))
+	(word (thing-at-point 'word t)))
     (fff--ensure-instance base)
     (setq fff--last-query (or word ""))
     (fff--backend-pick-grep
@@ -502,8 +514,8 @@ or leave nil to use the built-in `fff-backend-default'.")
   (interactive)
   (if fff--instance
       (let ((r (fff--ffi-scan-files fff--instance)))
-        (fff--ffi-free-result r)
-        (message "fff: rescanning"))
+	(fff--ffi-free-result r)
+	(message "fff: rescanning"))
     (message "fff: no active instance")))
 
 ;;;###autoload
@@ -512,8 +524,8 @@ or leave nil to use the built-in `fff-backend-default'.")
   (interactive)
   (if fff--instance
       (let ((r (fff--ffi-refresh-git-status fff--instance)))
-        (fff--ffi-free-result r)
-        (message "fff: git status refreshed"))
+	(fff--ffi-free-result r)
+	(message "fff: git status refreshed"))
     (message "fff: no active instance")))
 
 ;;;###autoload

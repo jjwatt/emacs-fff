@@ -56,98 +56,61 @@ fff.nvim ships three consumer interfaces: a Neovim Lua module (`libfff_nvim.so`)
 
 ### With Makefile
 
-A `Makefile` is provided to make installation a little easier.
+Because fff.el relies on compiled Rust and C binaries, a robust Makefile is provided that handles compiling both dependencies, linking them for your specific OS (Linux .so or macOS .dylib), and installing them into a self-contained directory.
 
-```shell
-Targets:
-  make          — check prerequisites and build everything
-  make install  — build + install to INSTALL_DIR
-  make check    — verify prerequisites only
-  make clean    — remove .build/ directory
-  make uninstall — remove INSTALL_DIR
+1. Prerequisites
 
-Variables (override on command line):
-  INSTALL_DIR   default: /home/jwatt/.emacs.local/emacs-fff
-  EMACS         default: emacs
-  CARGO         default: cargo
-```
+Ensure your system has the required build tools:
 
-Make sure you run `make check` first to check that you have the required build dependencies. You'll need git, gcc or clang, libltdl and cargo.
+- **Rust + Cargo:** rustup.rs
+- **Emacs 28.1+:** Must be built with dynamic module support (--with-modules)
+- **C Compiler:** gcc or clang
+- **libltdl & libffi headers:**
+    - *Fedora/RHEL:* sudo dnf install libtool-ltdl-devel libffi-devel
+    - *Ubuntu/Debian:* sudo apt install libltdl-dev libffi-dev
+    - *macOS:* brew install libtool libffi
+
+2. Build and Install
+
+Run the included Makefile. It will automatically download fff.nvim, compile the Rust core, compile the C FFI bridge, patch macOS library links (if applicable), and install everything to `~/.emacs.local/emacs-fff`.
 
 ```bash
+# Verify your system has the correct dependencies
 make check
-make
+
+# Build the binaries and install them to ~/.emacs.local/emacs-fff
 make install
 ```
 
-### Manual
+*(Optional overrides: You can change the install path by running `make install INSTALL_DIR=/your/custom/path`)*
 
-#### 1. Build `libfff_c.so`
+3. Emacs Configuration
 
-```bash
-git clone https://github.com/dmtrKovalenko/fff.nvim
-cd fff.nvim
-cargo build --release -p fff-c
-# → target/release/libfff_c.so  (Linux)
-# → target/release/libfff_c.dylib (macOS)
+Because the build process makes the binaries fully relocatable, you do not need to set LD_LIBRARY_PATH or use wrapper scripts. Just point Emacs to the installation directory.
+
+#### Option A: For use-package users (Recommended)
+
+```emacs-lisp
+(use-package fff-consult ; or fff-helm or fff-ivy
+  :straight nil
+  :load-path "~/.emacs.local/emacs-fff"
+  :commands (fff-find-file fff-grep) 
+  :bind (("C-c f f" . fff-find-file)
+         ("C-c f g" . fff-grep))
+  :config
+  ;; fff-consult already requires fff and ffi internally
+  (require 'consult) 
+  (consult-customize fff-grep :preview-key '(:debounce 0.4 any)))
 ```
 
-Or download the prebuilt `c-lib-{target}.so` from the [GitHub Releases](https://github.com/dmtrKovalenko/fff.nvim/releases) page.
+#### Option B: For Vanilla Emacs users
 
-#### 2. Make `libfff_c.so` findable
+```emacs-lisp
+(add-to-list 'load-path (expand-file-name "~/.emacs.local/emacs-fff"))
+(require 'fff-consult) ; or fff-helm, fff-ivy, etc.
 
-`libltdl` (used by emacs-ffi) searches `LD_LIBRARY_PATH` on Linux and `DYLD_LIBRARY_PATH` on macOS. The simplest approach:
-
-```bash
-# In your shell rc or Emacs launcher script:
-export LD_LIBRARY_PATH="$HOME/git/fff.nvim/target/release:$LD_LIBRARY_PATH"
-```
-
-Or install system-wide:
-
-```bash
-sudo cp target/release/libfff_c.so /usr/local/lib/
-sudo ldconfig
-```
-
-#### 3. Install `emacs-ffi`
-
-```bash
-git clone https://github.com/tromey/emacs-ffi
-cd emacs-ffi
-make
-```
-
-You may need to change `emacs-ffi/ffi.el` to load the ffi so module like this:
-
-```elisp
-;; (module-load "ffi-module.so")
-(load "ffi-module")
-```
-
-At least, I had to change it like that. I put both `emacs-ffi` and `emacs-fff` in `~/.emacs.local` and add them both the load path.
-
-#### 4. Install `fff.el`
-
-Copy `fff.el` and `fff-helm.el` (or whichever backend you want) to a directory on your `load-path`.
-
-#### 5. Configure
-
-```elisp
-;; Load the native ffi module first — must be an absolute path
-(module-load "/path/to/emacs-ffi/ffi-module.so")
-(add-to-list 'load-path "/path/to/emacs-ffi")
-
-;; Add fff to load-path
-(add-to-list 'load-path "/path/to/emacs-fff")
-
-;; Load your chosen backend (sets fff-backend automatically)
-(require 'fff-helm)    ; or fff-consult, fff-ivy, or just fff for default
-
-;; Bind keys
 (global-set-key (kbd "C-c f f") #'fff-find-file)
 (global-set-key (kbd "C-c f g") #'fff-grep)
-(global-set-key (kbd "C-c f w") #'fff-grep-word-at-point)
 ```
 
 ---
@@ -209,6 +172,7 @@ fff.el separates the data layer (FFI calls, result collection) from the UI layer
 |---|---|---|
 | `fff-helm.el` | `fff-backend-helm` | [helm](https://github.com/emacs-helm/helm) |
 | `fff-ivy.el` | `fff-backend-ivy` | [ivy](https://github.com/abo-abo/swiper)
+| `fff-consult.el` | `fff-backend-consult` | [consult](https://github.com/minad/consult)
 | *(built-in)* | `fff--make-default-backend` | `completing-read` |
 
 Loading `fff-helm.el` automatically sets `fff-backend` to `fff-backend-helm`.
@@ -299,21 +263,16 @@ If fff.nvim changes its struct layouts in a future version, update the offset co
 
 ## Troubleshooting
 
-**`module-open-failed` when loading ffi-module.so**
+**Binary/Module Not Found Errors**
 
-The `.so` needs an absolute path passed to `module-load` before `(require 'ffi)`:
-```elisp
-(module-load "/absolute/path/to/emacs-ffi/ffi-module.so")
-```
+If Emacs complains that it cannot load `ffi-module` or `libfff_c`, it is almost always a build/compilation issue rather than an Emacs config issue.
 
-**`libfff_c` not found / `define-ffi-library` fails**
+1. Ensure you ran make install and that it completed without errors.
 
-Confirm `LD_LIBRARY_PATH` includes the directory with `libfff_c.so` and restart Emacs — environment variables must be set before Emacs starts, not inside `init.el`.
+2. Verify the binaries exist in your installation directory (default: `~/.emacs.local/emacs-fff`).
 
-**`peculiar error`**
-
-Confirm `LD_LIBRARY_PATH` includes the directory with `libfff_c.so` and restart Emacs — environment variables must be set before Emacs starts, not inside `init.el`.
-
+3. If you moved the binaries manually after running make, **don't**. Run `make install INSTALL_DIR=/new/path` instead so the dynamic linker paths remain intact (especially critical on macOS).
+	
 **`fff-find-file` errors: "not in a project"**
 
 Run `M-x fff-change-directory` to set a fallback root, or add to your config:
@@ -337,3 +296,18 @@ Most likely a `uint64` argument is being mishandled by libffi. The `fff--wait-fo
 **`void-function` errors in helm candidates**
 
 This happens when helm evaluates candidate functions in its dynamic binding context. The fix is already applied — candidate functions must be top-level `defun`s passed as quoted symbols (e.g. `'fff--helm-candidates`), not anonymous lambdas. If you see this after editing `fff-helm.el`, run `M-x fff-helm-reload`.
+
+**`straight-pull-recipe-repositories` error when configuring**
+
+If you use `straight.el` for package management (especially with `straight-use-package-by-default` set to `t`), it will intercept the `use-package` declaration and attempt to download `fff-consult` or `fff-helm` from MELPA/GitHub. Since this is a local installation, it will fail with a "Could not find package" error.
+
+To fix this, explicitly tell `straight` to ignore the package by adding `:straight nil` to your declaration:
+
+```elisp
+(use-package fff-consult
+  :straight nil  ; Required if using straight.el
+  :load-path "~/.emacs.local/emacs-fff"
+  :commands (fff-find-file fff-grep)
+  :bind (("C-c f f" . fff-find-file)
+         ("C-c f g" . fff-grep)))
+```
