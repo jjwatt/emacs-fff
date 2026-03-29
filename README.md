@@ -91,7 +91,8 @@ Because the build process makes the binaries fully relocatable, you do not need 
 #### Option A: For use-package users (Recommended)
 
 ```emacs-lisp
-(use-package fff-consult
+(use-package fff-consult ; or fff-helm or fff-ivy
+  :straight nil
   :load-path "~/.emacs.local/emacs-fff"
   :commands (fff-find-file fff-grep) 
   :bind (("C-c f f" . fff-find-file)
