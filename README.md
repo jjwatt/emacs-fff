@@ -54,11 +54,9 @@ fff.nvim ships three consumer interfaces: a Neovim Lua module (`libfff_nvim.so`)
 
 ## Installation
 
-### With Makefile
-
 Because fff.el relies on compiled Rust and C binaries, a robust Makefile is provided that handles compiling both dependencies, linking them for your specific OS (Linux .so or macOS .dylib), and installing them into a self-contained directory.
 
-1. Prerequisites
+### 1. Prerequisites
 
 Ensure your system has the required build tools:
 
@@ -70,7 +68,7 @@ Ensure your system has the required build tools:
     - *Ubuntu/Debian:* sudo apt install libltdl-dev libffi-dev
     - *macOS:* brew install libtool libffi
 
-2. Build and Install
+### 2. Build and Install
 
 Run the included Makefile. It will automatically download fff.nvim, compile the Rust core, compile the C FFI bridge, patch macOS library links (if applicable), and install everything to `~/.emacs.local/emacs-fff`.
 
@@ -84,7 +82,7 @@ make install
 
 *(Optional overrides: You can change the install path by running `make install INSTALL_DIR=/your/custom/path`)*
 
-3. Emacs Configuration
+### 3. Emacs Configuration
 
 Because the build process makes the binaries fully relocatable, you do not need to set LD_LIBRARY_PATH or use wrapper scripts. Just point Emacs to the installation directory.
 
