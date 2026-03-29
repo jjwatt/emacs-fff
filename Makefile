@@ -126,10 +126,6 @@ install: all
 	cp "$(VENDORED_FFI_DIR)/ffi.el"        "$(INSTALL_DIR)/ffi.el"
 	cp "$(BUILD_DIR)/$(EMACS_FFI_MODULE)"  "$(INSTALL_DIR)/$(EMACS_FFI_MODULE)"
 	cp "$(BUILD_DIR)/$(LIBFFF_C)"          "$(INSTALL_DIR)/$(LIBFFF_C)"
-	@echo "==> Generating emacs-fff wrapper script"
-	@printf '#!/bin/sh\nexport LD_LIBRARY_PATH="$(INSTALL_DIR)$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}"\nexport DYLD_LIBRARY_PATH="$(INSTALL_DIR)$${DYLD_LIBRARY_PATH:+:$$DYLD_LIBRARY_PATH}"\nexec emacs "$$@"\n' \
-	  > "$(INSTALL_DIR)/emacs-fff"
-	@chmod +x "$(INSTALL_DIR)/emacs-fff"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@echo "Installation complete!"
 
