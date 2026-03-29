@@ -15,7 +15,12 @@
 
 (require 'cl-macs)
 
-(module-load "ffi-module.so")
+(let* ((current-dir (file-name-directory (or load-file-name buffer-file-name)))
+       (ext (if (eq system-type 'darwin) ".dylib" ".so"))
+       (module-path (expand-file-name (concat "ffi-module" ext) current-dir)))
+  (if (file-exists-p module-path)
+      (module-load module-path)
+    (error "ffi.el: Could not find module at %s" module-path)))
 
 (gv-define-simple-setter ffi--mem-ref ffi--mem-set t)
 
