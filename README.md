@@ -296,3 +296,18 @@ Most likely a `uint64` argument is being mishandled by libffi. The `fff--wait-fo
 **`void-function` errors in helm candidates**
 
 This happens when helm evaluates candidate functions in its dynamic binding context. The fix is already applied — candidate functions must be top-level `defun`s passed as quoted symbols (e.g. `'fff--helm-candidates`), not anonymous lambdas. If you see this after editing `fff-helm.el`, run `M-x fff-helm-reload`.
+
+**`straight-pull-recipe-repositories` error when configuring**
+
+If you use `straight.el` for package management (especially with `straight-use-package-by-default` set to `t`), it will intercept the `use-package` declaration and attempt to download `fff-consult` or `fff-helm` from MELPA/GitHub. Since this is a local installation, it will fail with a "Could not find package" error.
+
+To fix this, explicitly tell `straight` to ignore the package by adding `:straight nil` to your declaration:
+
+```elisp
+(use-package fff-consult
+  :straight nil  ; Required if using straight.el
+  :load-path "~/.emacs.local/emacs-fff"
+  :commands (fff-find-file fff-grep)
+  :bind (("C-c f f" . fff-find-file)
+         ("C-c f g" . fff-grep)))
+```
